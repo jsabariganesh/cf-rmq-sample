@@ -65,6 +65,18 @@ def list_services():
         print(f"❌ Failed to list services: {e}")
         return False
 
+def check_tls_config():
+    """Check TLS configuration"""
+    print("🔒 Checking TLS configuration...")
+    try:
+        response = requests.get(f"{APP_URL}/tls-config")
+        print(f"Status: {response.status_code}")
+        print(f"Response: {json.dumps(response.json(), indent=2)}")
+        return response.status_code == 200
+    except Exception as e:
+        print(f"❌ Failed to check TLS config: {e}")
+        return False
+
 def main():
     """Main demonstration function"""
     print("🚀 CF Python RMQ App Client Demo")
@@ -79,6 +91,11 @@ def main():
     
     # List services
     list_services()
+    
+    print("\n" + "=" * 40)
+    
+    # Check TLS configuration
+    check_tls_config()
     
     print("\n" + "=" * 40)
     

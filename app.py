@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import ssl
 from flask import Flask, jsonify, request
 import pika
 from cfenv import AppEnv
@@ -18,7 +19,7 @@ class RMQConnection:
         self.connect()
     
     def connect(self):
-        """Connect to RabbitMQ using CUPS service credentials"""
+        """Connect to RabbitMQ using CUPS service credentials with TLS support"""
         try:
             # Get Cloud Foundry environment
             env = AppEnv()
@@ -40,31 +41,91 @@ class RMQConnection:
                     'port': int(os.getenv('RMQ_PORT', 5672)),
                     'username': os.getenv('RMQ_USERNAME', 'guest'),
                     'password': os.getenv('RMQ_PASSWORD', 'guest'),
-                    'vhost': os.getenv('RMQ_VHOST', '/')
+                    'vhost': os.getenv('RMQ_VHOST', '/'),
+                    'ssl_enabled': os.getenv('RMQ_SSL_ENABLED', 'false').lower() == 'true',
+                    'ca_cert_path': os.getenv('RMQ_CA_CERT_PATH'),
+                    'client_cert_path': os.getenv('RMQ_CLIENT_CERT_PATH'),
+                    'client_key_path': os.getenv('RMQ_CLIENT_KEY_PATH'),
+                    'ssl_verify': os.getenv('RMQ_SSL_VERIFY', 'true').lower() == 'true'
                 }
                 logger.info("Using environment variables for RMQ connection")
+            
+            # Determine if SSL/TLS should be used
+            ssl_enabled = credentials.get('ssl_enabled', False)
+            ssl_options = None
+            
+            if ssl_enabled:
+                ssl_options = self._create_ssl_context(credentials)
+                if ssl_options:
+                    logger.info("TLS/SSL enabled for RabbitMQ connection")
+                else:
+                    logger.warning("SSL enabled but failed to create SSL context, falling back to non-SSL")
+            
+            # Determine port based on SSL
+            default_port = 5671 if ssl_enabled else 5672
+            port = credentials.get('port', default_port)
             
             # Create connection parameters
             connection_params = pika.ConnectionParameters(
                 host=credentials.get('hostname', credentials.get('host')),
-                port=credentials.get('port', 5672),
+                port=port,
                 virtual_host=credentials.get('vhost', '/'),
                 credentials=pika.PlainCredentials(
                     credentials.get('username'),
                     credentials.get('password')
-                )
+                ),
+                ssl_options=ssl_options
             )
             
             # Establish connection
             self.connection = pika.BlockingConnection(connection_params)
             self.channel = self.connection.channel()
             
-            logger.info("Successfully connected to RabbitMQ")
+            connection_type = "TLS/SSL" if ssl_enabled else "non-SSL"
+            logger.info(f"Successfully connected to RabbitMQ using {connection_type}")
             
         except Exception as e:
             logger.error(f"Failed to connect to RabbitMQ: {str(e)}")
             self.connection = None
             self.channel = None
+    
+    def _create_ssl_context(self, credentials):
+        """Create SSL context for TLS connections"""
+        try:
+            # Create SSL context
+            context = ssl.create_default_context()
+            
+            # Configure certificate verification
+            if not credentials.get('ssl_verify', True):
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
+                logger.warning("SSL certificate verification disabled")
+            
+            # Load CA certificate if provided
+            ca_cert_path = credentials.get('ca_cert_path')
+            if ca_cert_path and os.path.exists(ca_cert_path):
+                context.load_verify_locations(ca_cert_path)
+                logger.info(f"Loaded CA certificate from: {ca_cert_path}")
+            
+            # Load client certificate and key if provided
+            client_cert_path = credentials.get('client_cert_path')
+            client_key_path = credentials.get('client_key_path')
+            
+            if client_cert_path and client_key_path:
+                if os.path.exists(client_cert_path) and os.path.exists(client_key_path):
+                    context.load_cert_chain(client_cert_path, client_key_path)
+                    logger.info(f"Loaded client certificate from: {client_cert_path}")
+                else:
+                    logger.error("Client certificate or key file not found")
+                    return None
+            
+            # Create SSL options for pika
+            ssl_options = pika.SSLOptions(context)
+            return ssl_options
+            
+        except Exception as e:
+            logger.error(f"Failed to create SSL context: {str(e)}")
+            return None
     
     def publish_message(self, queue_name, message):
         """Publish a message to a queue"""
@@ -153,10 +214,15 @@ rmq = RMQConnection()
 @app.route('/')
 def health_check():
     """Health check endpoint"""
+    # Check if TLS is enabled
+    ssl_enabled = os.getenv('RMQ_SSL_ENABLED', 'false').lower() == 'true'
+    
     return jsonify({
         'status': 'healthy',
         'service': 'CF Python RMQ App',
-        'rmq_connected': rmq.connection is not None and not rmq.connection.is_closed
+        'rmq_connected': rmq.connection is not None and not rmq.connection.is_closed,
+        'ssl_enabled': ssl_enabled,
+        'ssl_port': 5671 if ssl_enabled else None
     })
 
 @app.route('/publish', methods=['POST'])
@@ -234,6 +300,49 @@ def list_services():
         
     except Exception as e:
         logger.error(f"Error listing services: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/tls-config')
+def tls_config():
+    """Show TLS configuration status"""
+    try:
+        ssl_enabled = os.getenv('RMQ_SSL_ENABLED', 'false').lower() == 'true'
+        ca_cert_path = os.getenv('RMQ_CA_CERT_PATH')
+        client_cert_path = os.getenv('RMQ_CLIENT_CERT_PATH')
+        client_key_path = os.getenv('RMQ_CLIENT_KEY_PATH')
+        ssl_verify = os.getenv('RMQ_SSL_VERIFY', 'true').lower() == 'true'
+        
+        config = {
+            'ssl_enabled': ssl_enabled,
+            'ssl_verify': ssl_verify,
+            'ca_cert_configured': ca_cert_path is not None,
+            'ca_cert_exists': ca_cert_path and os.path.exists(ca_cert_path),
+            'client_cert_configured': client_cert_path is not None,
+            'client_cert_exists': client_cert_path and os.path.exists(client_cert_path),
+            'client_key_configured': client_key_path is not None,
+            'client_key_exists': client_key_path and os.path.exists(client_key_path),
+            'ssl_port': 5671 if ssl_enabled else None,
+            'regular_port': 5672
+        }
+        
+        # Add file paths (but not expose sensitive content)
+        if ca_cert_path:
+            config['ca_cert_path'] = ca_cert_path
+        if client_cert_path:
+            config['client_cert_path'] = client_cert_path
+        if client_key_path:
+            config['client_key_path'] = client_key_path
+        
+        return jsonify({
+            'status': 'success',
+            'tls_config': config
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting TLS config: {str(e)}")
         return jsonify({
             'status': 'error',
             'message': str(e)

@@ -6,6 +6,7 @@ A Python Flask application designed to run on Cloud Foundry with RabbitMQ connec
 
 - **Flask Web Application**: RESTful API endpoints for RabbitMQ operations
 - **RabbitMQ Integration**: Connect to RabbitMQ using pika library
+- **TLS/SSL Support**: Secure connections with certificate authentication
 - **CUPS Support**: Automatic service discovery from Cloud Foundry bound services
 - **Health Checks**: Built-in health check endpoint
 - **Message Publishing**: Publish messages to RabbitMQ queues
@@ -16,11 +17,14 @@ A Python Flask application designed to run on Cloud Foundry with RabbitMQ connec
 
 ```
 cf-python-rmq-app/
-├── app.py              # Main Flask application
-├── requirements.txt    # Python dependencies
-├── manifest.yml        # Cloud Foundry deployment configuration
-├── setup-cups.sh       # Script to create CUPS service
-└── README.md          # This file
+├── app.py                    # Main Flask application
+├── requirements.txt          # Python dependencies
+├── manifest.yml              # Cloud Foundry deployment configuration
+├── setup-cups.sh             # Script to create CUPS service
+├── generate-test-certs.sh    # Script to generate test TLS certificates
+├── example_client.py         # Example client for testing
+├── certs/                    # Directory for TLS certificates
+└── README.md                # This file
 ```
 
 ## Prerequisites
@@ -184,22 +188,165 @@ Lists all bound Cloud Foundry services (useful for debugging).
 }
 ```
 
+### TLS Configuration Status
+```
+GET /tls-config
+```
+Shows the current TLS/SSL configuration status and certificate information.
+
+**Response:**
+```json
+{
+    "status": "success",
+    "tls_config": {
+        "ssl_enabled": true,
+        "ssl_verify": true,
+        "ca_cert_configured": true,
+        "ca_cert_exists": true,
+        "client_cert_configured": true,
+        "client_cert_exists": true,
+        "client_key_configured": true,
+        "client_key_exists": true,
+        "ssl_port": 5671,
+        "regular_port": 5672,
+        "ca_cert_path": "/path/to/ca-cert.pem",
+        "client_cert_path": "/path/to/client-cert.pem",
+        "client_key_path": "/path/to/client-key.pem"
+    }
+}
+```
+
 ## Configuration
 
 ### Environment Variables
 
 The application supports the following environment variables for local development:
 
+**Basic Connection:**
 - `RMQ_HOST`: RabbitMQ hostname (default: localhost)
-- `RMQ_PORT`: RabbitMQ port (default: 5672)
+- `RMQ_PORT`: RabbitMQ port (default: 5672, use 5671 for TLS)
 - `RMQ_USERNAME`: RabbitMQ username (default: guest)
 - `RMQ_PASSWORD`: RabbitMQ password (default: guest)
 - `RMQ_VHOST`: RabbitMQ virtual host (default: /)
 - `PORT`: Application port (default: 5000)
 
+**TLS/SSL Configuration:**
+- `RMQ_SSL_ENABLED`: Enable TLS/SSL (default: false)
+- `RMQ_SSL_VERIFY`: Verify SSL certificates (default: true)
+- `RMQ_CA_CERT_PATH`: Path to CA certificate file (optional)
+- `RMQ_CLIENT_CERT_PATH`: Path to client certificate file (optional)
+- `RMQ_CLIENT_KEY_PATH`: Path to client private key file (optional)
+
 ### Cloud Foundry Service Binding
 
 When deployed to Cloud Foundry, the application automatically detects bound services using the `cfenv` library. It looks for services with names containing "rabbitmq" or "rmq".
+
+## TLS/SSL Configuration
+
+### Overview
+
+The application supports secure TLS/SSL connections to RabbitMQ with the following features:
+- **Certificate-based authentication**: Support for client certificates
+- **CA certificate verification**: Custom CA certificate support
+- **Flexible verification**: Option to disable certificate verification for testing
+- **Auto port detection**: Automatically uses port 5671 for TLS connections
+
+### Setting up TLS Certificates
+
+#### For Development/Testing
+
+1. **Generate self-signed certificates** (for testing only):
+   ```bash
+   ./generate-test-certs.sh
+   ```
+
+   This creates certificates in the `certs/` directory:
+   - `ca-cert.pem` - CA certificate
+   - `client-cert.pem` - Client certificate
+   - `client-key.pem` - Client private key
+   - `server-cert.pem` - Server certificate (for RabbitMQ)
+   - `server-key.pem` - Server private key (for RabbitMQ)
+
+2. **Configure environment variables**:
+   ```bash
+   export RMQ_SSL_ENABLED=true
+   export RMQ_CA_CERT_PATH=$PWD/certs/ca-cert.pem
+   export RMQ_CLIENT_CERT_PATH=$PWD/certs/client-cert.pem
+   export RMQ_CLIENT_KEY_PATH=$PWD/certs/client-key.pem
+   export RMQ_SSL_VERIFY=false  # For self-signed certificates
+   export RMQ_PORT=5671  # TLS port
+   ```
+
+#### For Production
+
+1. **Obtain certificates from a trusted CA**
+2. **Place certificates in secure location**
+3. **Configure environment variables with proper paths**
+4. **Ensure `RMQ_SSL_VERIFY=true` for production**
+
+### Cloud Foundry TLS Setup
+
+When using CUPS with TLS, update your `setup-cups.sh` configuration:
+
+```bash
+# TLS Configuration
+RMQ_SSL_ENABLED="true"
+RMQ_PORT="5671"  # TLS port
+RMQ_SSL_VERIFY="true"  # Set to false only for self-signed certs
+RMQ_CA_CERT_PATH="/path/to/ca-cert.pem"
+RMQ_CLIENT_CERT_PATH="/path/to/client-cert.pem"
+RMQ_CLIENT_KEY_PATH="/path/to/client-key.pem"
+```
+
+### RabbitMQ Server TLS Configuration
+
+Configure your RabbitMQ server with TLS support. Example `rabbitmq.conf`:
+
+```ini
+# TLS Configuration
+listeners.ssl.default = 5671
+ssl_options.cacertfile = /path/to/ca-cert.pem
+ssl_options.certfile = /path/to/server-cert.pem
+ssl_options.keyfile = /path/to/server-key.pem
+ssl_options.verify = verify_peer
+ssl_options.fail_if_no_peer_cert = true
+```
+
+### Testing TLS Connection
+
+1. **Check TLS configuration**:
+   ```bash
+   curl http://localhost:5000/tls-config
+   ```
+
+2. **Verify in health check**:
+   ```bash
+   curl http://localhost:5000/
+   ```
+   Look for `"ssl_enabled": true` in the response.
+
+3. **Monitor connection logs**:
+   The application logs will show "TLS/SSL" when using secure connections.
+
+### Troubleshooting TLS Issues
+
+**Common Issues:**
+
+1. **Certificate not found**:
+   - Verify file paths are correct
+   - Check file permissions (certificates should be readable)
+
+2. **Certificate verification failed**:
+   - For testing: Set `RMQ_SSL_VERIFY=false`
+   - For production: Ensure certificates are from trusted CA
+
+3. **Connection refused**:
+   - Verify RabbitMQ is listening on TLS port (5671)
+   - Check firewall rules
+
+4. **Hostname verification failed**:
+   - Ensure certificate contains correct hostname/IP
+   - For development: Use certificates with localhost/127.0.0.1
 
 ## Testing the Application
 
