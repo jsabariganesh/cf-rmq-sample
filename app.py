@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import ssl
+import tempfile
 from flask import Flask, jsonify, request
 import pika
 from cfenv import AppEnv
@@ -16,6 +17,7 @@ class RMQConnection:
     def __init__(self):
         self.connection = None
         self.channel = None
+        self._temp_cert_files = []
         self.connect()
     
     def connect(self):
@@ -98,7 +100,9 @@ class RMQConnection:
                     credentials.get('username'),
                     credentials.get('password')
                 ),
-                ssl_options=ssl_options
+                ssl_options=ssl_options,
+                heartbeat=600,  # Add heartbeat to keep connection alive
+                blocked_connection_timeout=300  # Add timeout for blocked connections
             )
             
             # Establish connection
@@ -115,7 +119,6 @@ class RMQConnection:
     
     def _create_ssl_context(self, credentials):
         """Create SSL context for TLS connections"""
-        import tempfile
         temp_files = []
         
         try:
@@ -180,7 +183,7 @@ class RMQConnection:
                     return None
             
             # Store temp files for later cleanup
-            self._temp_cert_files = getattr(self, '_temp_cert_files', []) + temp_files
+            self._temp_cert_files.extend(temp_files)
             
             # Create SSL options for pika
             ssl_options = pika.SSLOptions(context)
@@ -199,13 +202,27 @@ class RMQConnection:
             except Exception as e:
                 logger.warning(f"Failed to cleanup temp file {temp_file}: {str(e)}")
     
+    def _ensure_connection(self):
+        """Ensure connection and channel are available"""
+        if not self.connection or self.connection.is_closed:
+            logger.info("Connection lost, reconnecting...")
+            self.connect()
+        
+        if not self.channel or self.channel.is_closed:
+            if self.connection and not self.connection.is_closed:
+                try:
+                    self.channel = self.connection.channel()
+                    logger.info("Recreated channel")
+                except Exception as e:
+                    logger.error(f"Failed to create channel: {str(e)}")
+                    self.connect()
+    
     def publish_message(self, queue_name, message):
         """Publish a message to a queue"""
         try:
-            if not self.channel:
-                self.connect()
+            self._ensure_connection()
             
-            if self.channel:
+            if self.channel and not self.channel.is_closed:
                 # Declare queue (create if doesn't exist)
                 self.channel.queue_declare(queue=queue_name, durable=True)
                 
@@ -231,10 +248,9 @@ class RMQConnection:
     def consume_messages(self, queue_name, callback, auto_ack=True):
         """Consume messages from a queue"""
         try:
-            if not self.channel:
-                self.connect()
+            self._ensure_connection()
             
-            if self.channel:
+            if self.channel and not self.channel.is_closed:
                 # Declare queue
                 self.channel.queue_declare(queue=queue_name, durable=True)
                 
@@ -254,10 +270,9 @@ class RMQConnection:
     def get_queue_info(self, queue_name):
         """Get information about a queue"""
         try:
-            if not self.channel:
-                self.connect()
+            self._ensure_connection()
             
-            if self.channel:
+            if self.channel and not self.channel.is_closed:
                 method = self.channel.queue_declare(queue=queue_name, passive=True)
                 return {
                     'queue': queue_name,
@@ -281,9 +296,8 @@ class RMQConnection:
             logger.error(f"Error closing RMQ connection: {str(e)}")
         finally:
             # Clean up temporary certificate files
-            temp_files = getattr(self, '_temp_cert_files', [])
-            if temp_files:
-                self._cleanup_temp_files(temp_files)
+            if self._temp_cert_files:
+                self._cleanup_temp_files(self._temp_cert_files)
                 self._temp_cert_files = []
 
 # Initialize RMQ connection
@@ -292,13 +306,19 @@ rmq = RMQConnection()
 @app.route('/')
 def health_check():
     """Health check endpoint"""
+    # Check if connection is active
+    connection_active = (rmq.connection is not None and 
+                        not rmq.connection.is_closed and
+                        rmq.channel is not None and 
+                        not rmq.channel.is_closed)
+    
     # Check if TLS is enabled
     ssl_enabled = os.getenv('RMQ_SSL_ENABLED', 'false').lower() == 'true'
     
     return jsonify({
         'status': 'healthy',
         'service': 'CF Python RMQ App',
-        'rmq_connected': rmq.connection is not None and not rmq.connection.is_closed,
+        'rmq_connected': connection_active,
         'ssl_enabled': ssl_enabled,
         'ssl_port': 5671 if ssl_enabled else None
     })
@@ -468,11 +488,9 @@ def tls_config():
             'message': str(e)
         }), 500
 
-# Cleanup on app shutdown
-@app.teardown_appcontext
-def close_rmq_connection(error):
-    if rmq:
-        rmq.close()
+# Only close connection on actual app shutdown, not per request
+import atexit
+atexit.register(lambda: rmq.close())
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
