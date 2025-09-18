@@ -233,9 +233,16 @@ The application supports the following environment variables for local developme
 **TLS/SSL Configuration:**
 - `RMQ_SSL_ENABLED`: Enable TLS/SSL (default: false)
 - `RMQ_SSL_VERIFY`: Verify SSL certificates (default: true)
+
+**Certificate Files (for local development):**
 - `RMQ_CA_CERT_PATH`: Path to CA certificate file (optional)
 - `RMQ_CLIENT_CERT_PATH`: Path to client certificate file (optional)
 - `RMQ_CLIENT_KEY_PATH`: Path to client private key file (optional)
+
+**Certificate Contents (for CF deployment):**
+- `RMQ_CA_CERT_CONTENT`: CA certificate content as string (optional)
+- `RMQ_CLIENT_CERT_CONTENT`: Client certificate content as string (optional)
+- `RMQ_CLIENT_KEY_CONTENT`: Client private key content as string (optional)
 
 ### Cloud Foundry Service Binding
 
@@ -297,6 +304,16 @@ RMQ_CA_CERT_PATH="/path/to/ca-cert.pem"
 RMQ_CLIENT_CERT_PATH="/path/to/client-cert.pem"
 RMQ_CLIENT_KEY_PATH="/path/to/client-key.pem"
 ```
+
+**Important:** The setup script automatically reads the certificate file contents and embeds them in the CUPS service credentials. This ensures the CF app can access certificates without requiring file system access in the container.
+
+#### How Certificate Embedding Works
+
+1. **Setup Script**: Reads certificate files and embeds content as strings
+2. **CF Service**: Stores certificate contents in service credentials
+3. **App Runtime**: Creates temporary files from certificate content
+4. **SSL Context**: Uses temporary files for SSL configuration
+5. **Cleanup**: Removes temporary files when connection closes
 
 ### RabbitMQ Server TLS Configuration
 
@@ -384,6 +401,39 @@ ssl_options.fail_if_no_peer_cert = true
 
 2. **Service Not Found:**
    - Verify CUPS service name matches manifest.yml
+
+3. **SSL Certificate Issues with CF App (curl errors):**
+   
+   **Error:** `curl: (60) SSL certificate problem: unable to get local issuer certificate`
+   
+   **Solutions:**
+   ```bash
+   # Quick fix: Skip SSL verification for testing
+   curl -k https://your-app.cfapps.io/
+   curl --insecure https://your-app.cfapps.io/
+   
+   # Alternative: Try HTTP if available
+   curl http://your-app.cfapps.io/
+   
+   # Use the provided test script
+   ./test-cf-app.sh
+   ```
+   
+   **Root Causes:**
+   - CF platform uses self-signed certificates
+   - CA certificate not in your system's trust store
+   - Corporate proxy/firewall intercepting SSL
+   
+   **Permanent Solutions:**
+   - Add CF platform's CA certificate to your system
+   - Contact your CF administrator for proper certificates
+   - Use CF platform's recommended SSL configuration
+
+4. **Authentication Expired:**
+   ```bash
+   cf login
+   cf target -o your-org -s your-space
+   ```
    - Check if service is properly bound: `cf services`
 
 3. **Application Won't Start:**

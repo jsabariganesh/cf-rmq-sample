@@ -43,11 +43,35 @@ class RMQConnection:
                     'password': os.getenv('RMQ_PASSWORD', 'guest'),
                     'vhost': os.getenv('RMQ_VHOST', '/'),
                     'ssl_enabled': os.getenv('RMQ_SSL_ENABLED', 'false').lower() == 'true',
-                    'ca_cert_path': os.getenv('RMQ_CA_CERT_PATH'),
-                    'client_cert_path': os.getenv('RMQ_CLIENT_CERT_PATH'),
-                    'client_key_path': os.getenv('RMQ_CLIENT_KEY_PATH'),
                     'ssl_verify': os.getenv('RMQ_SSL_VERIFY', 'true').lower() == 'true'
                 }
+                
+                # For local development, support both file paths and content
+                # File paths (legacy support)
+                ca_cert_path = os.getenv('RMQ_CA_CERT_PATH')
+                client_cert_path = os.getenv('RMQ_CLIENT_CERT_PATH')
+                client_key_path = os.getenv('RMQ_CLIENT_KEY_PATH')
+                
+                # Certificate contents (preferred for CF)
+                ca_cert_content = os.getenv('RMQ_CA_CERT_CONTENT')
+                client_cert_content = os.getenv('RMQ_CLIENT_CERT_CONTENT')
+                client_key_content = os.getenv('RMQ_CLIENT_KEY_CONTENT')
+                
+                # Add certificate data to credentials
+                if ca_cert_content:
+                    credentials['ca_cert_content'] = ca_cert_content
+                elif ca_cert_path:
+                    credentials['ca_cert_path'] = ca_cert_path
+                    
+                if client_cert_content:
+                    credentials['client_cert_content'] = client_cert_content
+                elif client_cert_path:
+                    credentials['client_cert_path'] = client_cert_path
+                    
+                if client_key_content:
+                    credentials['client_key_content'] = client_key_content
+                elif client_key_path:
+                    credentials['client_key_path'] = client_key_path
                 logger.info("Using environment variables for RMQ connection")
             
             # Determine if SSL/TLS should be used
@@ -91,6 +115,9 @@ class RMQConnection:
     
     def _create_ssl_context(self, credentials):
         """Create SSL context for TLS connections"""
+        import tempfile
+        temp_files = []
+        
         try:
             # Create SSL context
             context = ssl.create_default_context()
@@ -101,23 +128,59 @@ class RMQConnection:
                 context.verify_mode = ssl.CERT_NONE
                 logger.warning("SSL certificate verification disabled")
             
-            # Load CA certificate if provided
+            # Handle CA certificate
+            ca_cert_content = credentials.get('ca_cert_content')
             ca_cert_path = credentials.get('ca_cert_path')
-            if ca_cert_path and os.path.exists(ca_cert_path):
+            
+            if ca_cert_content:
+                # Create temporary file for CA certificate content
+                ca_temp = tempfile.NamedTemporaryFile(mode='w', suffix='.pem', delete=False)
+                ca_temp.write(ca_cert_content.replace('\\n', '\n'))
+                ca_temp.flush()
+                ca_temp.close()
+                temp_files.append(ca_temp.name)
+                
+                context.load_verify_locations(ca_temp.name)
+                logger.info("Loaded CA certificate from service credentials")
+                
+            elif ca_cert_path and os.path.exists(ca_cert_path):
                 context.load_verify_locations(ca_cert_path)
                 logger.info(f"Loaded CA certificate from: {ca_cert_path}")
             
-            # Load client certificate and key if provided
+            # Handle client certificate and key
+            client_cert_content = credentials.get('client_cert_content')
+            client_key_content = credentials.get('client_key_content')
             client_cert_path = credentials.get('client_cert_path')
             client_key_path = credentials.get('client_key_path')
             
-            if client_cert_path and client_key_path:
+            if client_cert_content and client_key_content:
+                # Create temporary files for client certificate and key
+                cert_temp = tempfile.NamedTemporaryFile(mode='w', suffix='.pem', delete=False)
+                cert_temp.write(client_cert_content.replace('\\n', '\n'))
+                cert_temp.flush()
+                cert_temp.close()
+                temp_files.append(cert_temp.name)
+                
+                key_temp = tempfile.NamedTemporaryFile(mode='w', suffix='.pem', delete=False)
+                key_temp.write(client_key_content.replace('\\n', '\n'))
+                key_temp.flush()
+                key_temp.close()
+                temp_files.append(key_temp.name)
+                
+                context.load_cert_chain(cert_temp.name, key_temp.name)
+                logger.info("Loaded client certificate from service credentials")
+                
+            elif client_cert_path and client_key_path:
                 if os.path.exists(client_cert_path) and os.path.exists(client_key_path):
                     context.load_cert_chain(client_cert_path, client_key_path)
                     logger.info(f"Loaded client certificate from: {client_cert_path}")
                 else:
                     logger.error("Client certificate or key file not found")
+                    self._cleanup_temp_files(temp_files)
                     return None
+            
+            # Store temp files for later cleanup
+            self._temp_cert_files = getattr(self, '_temp_cert_files', []) + temp_files
             
             # Create SSL options for pika
             ssl_options = pika.SSLOptions(context)
@@ -125,7 +188,16 @@ class RMQConnection:
             
         except Exception as e:
             logger.error(f"Failed to create SSL context: {str(e)}")
+            self._cleanup_temp_files(temp_files)
             return None
+    
+    def _cleanup_temp_files(self, temp_files):
+        """Clean up temporary certificate files"""
+        for temp_file in temp_files:
+            try:
+                os.unlink(temp_file)
+            except Exception as e:
+                logger.warning(f"Failed to cleanup temp file {temp_file}: {str(e)}")
     
     def publish_message(self, queue_name, message):
         """Publish a message to a queue"""
@@ -207,6 +279,12 @@ class RMQConnection:
                 logger.info("RMQ connection closed")
         except Exception as e:
             logger.error(f"Error closing RMQ connection: {str(e)}")
+        finally:
+            # Clean up temporary certificate files
+            temp_files = getattr(self, '_temp_cert_files', [])
+            if temp_files:
+                self._cleanup_temp_files(temp_files)
+                self._temp_cert_files = []
 
 # Initialize RMQ connection
 rmq = RMQConnection()
@@ -309,21 +387,55 @@ def list_services():
 def tls_config():
     """Show TLS configuration status"""
     try:
-        ssl_enabled = os.getenv('RMQ_SSL_ENABLED', 'false').lower() == 'true'
-        ca_cert_path = os.getenv('RMQ_CA_CERT_PATH')
-        client_cert_path = os.getenv('RMQ_CLIENT_CERT_PATH')
-        client_key_path = os.getenv('RMQ_CLIENT_KEY_PATH')
-        ssl_verify = os.getenv('RMQ_SSL_VERIFY', 'true').lower() == 'true'
+        # Check CF service credentials first
+        env = AppEnv()
+        rmq_service = None
+        for service in env.services:
+            if 'rabbitmq' in service.name.lower() or 'rmq' in service.name.lower():
+                rmq_service = service
+                break
+        
+        if rmq_service:
+            credentials = rmq_service.credentials
+            source = "cf_service"
+        else:
+            # Use environment variables
+            credentials = {
+                'ssl_enabled': os.getenv('RMQ_SSL_ENABLED', 'false').lower() == 'true',
+                'ssl_verify': os.getenv('RMQ_SSL_VERIFY', 'true').lower() == 'true',
+                'ca_cert_path': os.getenv('RMQ_CA_CERT_PATH'),
+                'client_cert_path': os.getenv('RMQ_CLIENT_CERT_PATH'),
+                'client_key_path': os.getenv('RMQ_CLIENT_KEY_PATH'),
+                'ca_cert_content': os.getenv('RMQ_CA_CERT_CONTENT'),
+                'client_cert_content': os.getenv('RMQ_CLIENT_CERT_CONTENT'),
+                'client_key_content': os.getenv('RMQ_CLIENT_KEY_CONTENT')
+            }
+            source = "environment"
+        
+        ssl_enabled = credentials.get('ssl_enabled', False)
+        ssl_verify = credentials.get('ssl_verify', True)
+        
+        # Check certificate configuration
+        ca_cert_content = credentials.get('ca_cert_content')
+        client_cert_content = credentials.get('client_cert_content')
+        client_key_content = credentials.get('client_key_content')
+        ca_cert_path = credentials.get('ca_cert_path')
+        client_cert_path = credentials.get('client_cert_path')
+        client_key_path = credentials.get('client_key_path')
         
         config = {
             'ssl_enabled': ssl_enabled,
             'ssl_verify': ssl_verify,
-            'ca_cert_configured': ca_cert_path is not None,
-            'ca_cert_exists': ca_cert_path and os.path.exists(ca_cert_path),
-            'client_cert_configured': client_cert_path is not None,
-            'client_cert_exists': client_cert_path and os.path.exists(client_cert_path),
-            'client_key_configured': client_key_path is not None,
-            'client_key_exists': client_key_path and os.path.exists(client_key_path),
+            'configuration_source': source,
+            'ca_cert_configured': bool(ca_cert_content or ca_cert_path),
+            'ca_cert_from_content': bool(ca_cert_content),
+            'ca_cert_from_file': bool(ca_cert_path and os.path.exists(ca_cert_path)),
+            'client_cert_configured': bool(client_cert_content or client_cert_path),
+            'client_cert_from_content': bool(client_cert_content),
+            'client_cert_from_file': bool(client_cert_path and os.path.exists(client_cert_path)),
+            'client_key_configured': bool(client_key_content or client_key_path),
+            'client_key_from_content': bool(client_key_content),
+            'client_key_from_file': bool(client_key_path and os.path.exists(client_key_path)),
             'ssl_port': 5671 if ssl_enabled else None,
             'regular_port': 5672
         }
@@ -335,6 +447,14 @@ def tls_config():
             config['client_cert_path'] = client_cert_path
         if client_key_path:
             config['client_key_path'] = client_key_path
+            
+        # Add content indicators (but not the actual content)
+        if ca_cert_content:
+            config['ca_cert_content_length'] = len(ca_cert_content)
+        if client_cert_content:
+            config['client_cert_content_length'] = len(client_cert_content)
+        if client_key_content:
+            config['client_key_content_length'] = len(client_key_content)
         
         return jsonify({
             'status': 'success',

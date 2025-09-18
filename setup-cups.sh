@@ -43,6 +43,17 @@ cf target
 # Create the CUPS service with RabbitMQ credentials
 echo "Creating user-provided service '$SERVICE_NAME'..."
 
+# Function to read and encode certificate content
+read_cert_content() {
+    local cert_path=$1
+    if [ -n "$cert_path" ] && [ -f "$cert_path" ]; then
+        # Read certificate content and escape newlines and quotes for JSON
+        cat "$cert_path" | sed 's/$/\\n/' | tr -d '\n' | sed 's/\\n$//' | sed 's/"/\\"/g'
+    else
+        echo ""
+    fi
+}
+
 # Build the JSON payload with TLS options
 JSON_PAYLOAD='{
     "hostname": "'$RMQ_HOST'",
@@ -53,20 +64,38 @@ JSON_PAYLOAD='{
     "ssl_enabled": '$RMQ_SSL_ENABLED',
     "ssl_verify": '$RMQ_SSL_VERIFY''
 
-# Add certificate paths if provided
-if [ -n "$RMQ_CA_CERT_PATH" ]; then
-    JSON_PAYLOAD=$JSON_PAYLOAD',
-    "ca_cert_path": "'$RMQ_CA_CERT_PATH'"'
+# Add certificate contents if files are provided
+if [ -n "$RMQ_CA_CERT_PATH" ] && [ -f "$RMQ_CA_CERT_PATH" ]; then
+    echo "Reading CA certificate from: $RMQ_CA_CERT_PATH"
+    CA_CERT_CONTENT=$(read_cert_content "$RMQ_CA_CERT_PATH")
+    if [ -n "$CA_CERT_CONTENT" ]; then
+        JSON_PAYLOAD=$JSON_PAYLOAD',
+    "ca_cert_content": "'$CA_CERT_CONTENT'"'
+    else
+        echo "Warning: Could not read CA certificate file"
+    fi
 fi
 
-if [ -n "$RMQ_CLIENT_CERT_PATH" ]; then
-    JSON_PAYLOAD=$JSON_PAYLOAD',
-    "client_cert_path": "'$RMQ_CLIENT_CERT_PATH'"'
+if [ -n "$RMQ_CLIENT_CERT_PATH" ] && [ -f "$RMQ_CLIENT_CERT_PATH" ]; then
+    echo "Reading client certificate from: $RMQ_CLIENT_CERT_PATH"
+    CLIENT_CERT_CONTENT=$(read_cert_content "$RMQ_CLIENT_CERT_PATH")
+    if [ -n "$CLIENT_CERT_CONTENT" ]; then
+        JSON_PAYLOAD=$JSON_PAYLOAD',
+    "client_cert_content": "'$CLIENT_CERT_CONTENT'"'
+    else
+        echo "Warning: Could not read client certificate file"
+    fi
 fi
 
-if [ -n "$RMQ_CLIENT_KEY_PATH" ]; then
-    JSON_PAYLOAD=$JSON_PAYLOAD',
-    "client_key_path": "'$RMQ_CLIENT_KEY_PATH'"'
+if [ -n "$RMQ_CLIENT_KEY_PATH" ] && [ -f "$RMQ_CLIENT_KEY_PATH" ]; then
+    echo "Reading client private key from: $RMQ_CLIENT_KEY_PATH"
+    CLIENT_KEY_CONTENT=$(read_cert_content "$RMQ_CLIENT_KEY_PATH")
+    if [ -n "$CLIENT_KEY_CONTENT" ]; then
+        JSON_PAYLOAD=$JSON_PAYLOAD',
+    "client_key_content": "'$CLIENT_KEY_CONTENT'"'
+    else
+        echo "Warning: Could not read client private key file"
+    fi
 fi
 
 JSON_PAYLOAD=$JSON_PAYLOAD'}'
@@ -88,12 +117,16 @@ if [ $? -eq 0 ]; then
         echo "🔒 TLS/SSL is ENABLED for this service"
         echo "   - Port: $RMQ_PORT (should be 5671 for TLS)"
         echo "   - Certificate verification: $RMQ_SSL_VERIFY"
-        if [ -n "$RMQ_CA_CERT_PATH" ]; then
-            echo "   - CA Certificate: $RMQ_CA_CERT_PATH"
+        if [ -n "$RMQ_CA_CERT_PATH" ] && [ -f "$RMQ_CA_CERT_PATH" ]; then
+            echo "   - CA Certificate: Embedded from $RMQ_CA_CERT_PATH"
         fi
-        if [ -n "$RMQ_CLIENT_CERT_PATH" ]; then
-            echo "   - Client Certificate: $RMQ_CLIENT_CERT_PATH"
+        if [ -n "$RMQ_CLIENT_CERT_PATH" ] && [ -f "$RMQ_CLIENT_CERT_PATH" ]; then
+            echo "   - Client Certificate: Embedded from $RMQ_CLIENT_CERT_PATH"
         fi
+        if [ -n "$RMQ_CLIENT_KEY_PATH" ] && [ -f "$RMQ_CLIENT_KEY_PATH" ]; then
+            echo "   - Client Key: Embedded from $RMQ_CLIENT_KEY_PATH"
+        fi
+        echo "   - Certificate contents are embedded in service credentials"
     else
         echo "🔓 TLS/SSL is DISABLED for this service"
         echo "   - Port: $RMQ_PORT (standard non-SSL port is 5672)"
