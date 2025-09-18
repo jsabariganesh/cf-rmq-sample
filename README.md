@@ -11,6 +11,9 @@ A Python Flask application designed to run on Cloud Foundry with RabbitMQ connec
 - **Health Checks**: Built-in health check endpoint
 - **Message Publishing**: Publish messages to RabbitMQ queues
 - **Queue Management**: Get queue information and statistics
+- **Message Reading**: Peek at queue contents without consuming messages
+- **Message Consumption**: Consume messages from queues
+- **Web UI**: Beautiful, responsive web interface for queue management
 - **Environment Flexibility**: Works both on Cloud Foundry and locally
 
 ## Project Structure
@@ -216,6 +219,92 @@ Shows the current TLS/SSL configuration status and certificate information.
 }
 ```
 
+### Peek Queue Messages
+```
+GET /queue/{queue_name}/messages?limit=10
+```
+Peek at messages in a queue without consuming them (non-destructive read).
+
+**Parameters:**
+- `limit` (optional): Maximum number of messages to retrieve (default: 10, max: 50)
+
+**Response:**
+```json
+{
+    "status": "success",
+    "queue": "demo_queue",
+    "message_count": 2,
+    "messages": [
+        {
+            "delivery_tag": 1,
+            "exchange": "",
+            "routing_key": "demo_queue",
+            "message_count": 1,
+            "redelivered": false,
+            "body": {
+                "text": "Hello World!",
+                "timestamp": "2025-01-01T00:00:00Z"
+            },
+            "properties": {
+                "content_type": null,
+                "delivery_mode": 2,
+                "timestamp": null,
+                "message_id": null,
+                "user_id": null,
+                "app_id": null
+            }
+        }
+    ]
+}
+```
+
+### Consume Queue Messages
+```
+POST /queue/{queue_name}/consume
+```
+Consume (permanently remove) messages from a queue.
+
+**Request Body:**
+```json
+{
+    "count": 1
+}
+```
+
+**Response:**
+```json
+{
+    "status": "success",
+    "queue": "demo_queue",
+    "consumed_count": 1,
+    "messages": [
+        {
+            "exchange": "",
+            "routing_key": "demo_queue",
+            "body": {
+                "text": "Hello World!",
+                "timestamp": "2025-01-01T00:00:00Z"
+            },
+            "consumed_at": "{\"timestamp\": \"now\"}"
+        }
+    ]
+}
+```
+
+### Web UI
+```
+GET /ui
+```
+Access the web-based user interface for managing RabbitMQ queues.
+
+**Features:**
+- 📨 Send messages to queues with JSON formatting
+- 📊 View queue information and statistics  
+- 👀 Peek at messages without consuming them
+- 🗑️ Consume messages permanently
+- ⚡ Check system status and TLS configuration
+- 📱 Responsive design for mobile and desktop
+
 ## Configuration
 
 ### Environment Variables
@@ -372,7 +461,13 @@ ssl_options.fail_if_no_peer_cert = true
    curl https://your-app.cfapps.io/
    ```
 
-2. **Publish a test message:**
+2. **Access the Web UI:**
+   ```bash
+   # Open in browser
+   https://your-app.cfapps.io/ui
+   ```
+
+3. **Publish a test message:**
    ```bash
    curl -X POST https://your-app.cfapps.io/publish \
      -H "Content-Type: application/json" \
@@ -385,7 +480,19 @@ ssl_options.fail_if_no_peer_cert = true
      }'
    ```
 
-3. **Check queue information:**
+4. **Peek at queue messages:**
+   ```bash
+   curl https://your-app.cfapps.io/queue/test_queue/messages?limit=5
+   ```
+
+5. **Consume messages:**
+   ```bash
+   curl -X POST https://your-app.cfapps.io/queue/test_queue/consume \
+     -H "Content-Type: application/json" \
+     -d '{"count": 1}'
+   ```
+
+6. **Check queue information:**
    ```bash
    curl https://your-app.cfapps.io/queue/test_queue/info
    ```

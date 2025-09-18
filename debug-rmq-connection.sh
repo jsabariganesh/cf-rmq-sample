@@ -1,0 +1,112 @@
+#!/bin/bash
+
+# RabbitMQ Connection Debug Script
+# This script helps diagnose RMQ connection issues
+
+echo "🔍 RabbitMQ Connection Debug Script"
+echo "==================================="
+
+# Get app URL from user
+read -p "Enter your CF app URL (e.g., https://your-app.cfapps.io): " APP_URL
+if [ -z "$APP_URL" ]; then
+    echo "❌ No app URL provided. Exiting."
+    exit 1
+fi
+
+APP_URL_CLEAN=${APP_URL%/}  # Remove trailing slash
+
+echo ""
+echo "🏥 1. Checking App Health"
+echo "------------------------"
+echo "Testing: $APP_URL_CLEAN/"
+curl -k -s "$APP_URL_CLEAN/" | python3 -m json.tool 2>/dev/null || curl -k -s "$APP_URL_CLEAN/"
+
+echo ""
+echo ""
+echo "🔗 2. Checking Bound Services"
+echo "----------------------------"
+echo "Testing: $APP_URL_CLEAN/services"
+curl -k -s "$APP_URL_CLEAN/services" | python3 -m json.tool 2>/dev/null || curl -k -s "$APP_URL_CLEAN/services"
+
+echo ""
+echo ""
+echo "🔒 3. Checking TLS Configuration"
+echo "-------------------------------"
+echo "Testing: $APP_URL_CLEAN/tls-config"
+curl -k -s "$APP_URL_CLEAN/tls-config" | python3 -m json.tool 2>/dev/null || curl -k -s "$APP_URL_CLEAN/tls-config"
+
+echo ""
+echo ""
+echo "📋 4. Checking App Logs"
+echo "----------------------"
+echo "To check app logs, run:"
+echo "  cf logs your-app-name --recent"
+echo ""
+
+echo "🔧 5. Common RMQ Connection Issues & Solutions"
+echo "=============================================="
+echo ""
+echo "❌ Issue: No RMQ service found"
+echo "   Solution: Check if CUPS service is created and bound"
+echo "   Commands:"
+echo "     cf services"
+echo "     cf service your-service-name"
+echo ""
+echo "❌ Issue: Wrong credentials"
+echo "   Solution: Verify RMQ host, port, username, password"
+echo "   Check: CUPS service credentials match your RMQ instance"
+echo ""
+echo "❌ Issue: Network connectivity"
+echo "   Solution: Ensure RMQ instance is accessible from CF"
+echo "   Check: Firewall rules, security groups, VPN connectivity"
+echo ""
+echo "❌ Issue: SSL/TLS configuration"
+echo "   Solution: Check SSL settings and certificates"
+echo "   Commands:"
+echo "     curl -k $APP_URL_CLEAN/tls-config"
+echo ""
+echo "❌ Issue: Service binding"
+echo "   Solution: Ensure service is properly bound to app"
+echo "   Commands:"
+echo "     cf env your-app-name"
+echo "     cf restage your-app-name"
+echo ""
+
+echo "🛠️  6. Debug Steps to Try"
+echo "========================"
+echo ""
+echo "1. Log into CF and check services:"
+echo "   cf login"
+echo "   cf services"
+echo "   cf service your-rabbitmq-service"
+echo ""
+echo "2. Check app environment:"
+echo "   cf env your-app-name"
+echo ""
+echo "3. Check app logs:"
+echo "   cf logs your-app-name --recent"
+echo ""
+echo "4. Test RMQ connection manually:"
+echo "   # Try connecting to your RMQ instance from local machine"
+echo "   # Use tools like telnet, nc, or RMQ management UI"
+echo ""
+echo "5. Recreate CUPS service if needed:"
+echo "   cf delete-service your-rabbitmq-service"
+echo "   ./setup-cups.sh"
+echo ""
+echo "6. Restart/restage the app:"
+echo "   cf restart your-app-name"
+echo "   # or"
+echo "   cf restage your-app-name"
+echo ""
+
+echo "📞 Need Help?"
+echo "============="
+echo "If you're still having issues, please provide:"
+echo "1. Output from: cf services"
+echo "2. Output from: cf service your-rabbitmq-service"
+echo "3. Output from: cf logs your-app-name --recent"
+echo "4. Your RMQ instance details (host, port, SSL enabled?)"
+echo ""
+
+echo "✅ Debug script completed!"

@@ -77,6 +77,51 @@ def check_tls_config():
         print(f"❌ Failed to check TLS config: {e}")
         return False
 
+def peek_queue_messages(queue_name, limit=5):
+    """Peek at messages in a queue without consuming them"""
+    print(f"👀 Peeking at messages in queue '{queue_name}'...")
+    try:
+        response = requests.get(f"{APP_URL}/queue/{queue_name}/messages?limit={limit}")
+        print(f"Status: {response.status_code}")
+        data = response.json()
+        
+        if response.status_code == 200 and data.get('messages'):
+            print(f"Found {len(data['messages'])} messages:")
+            for i, msg in enumerate(data['messages'], 1):
+                print(f"  Message {i}:")
+                print(f"    Body: {json.dumps(msg['body'], indent=6)}")
+                print(f"    Delivery Tag: {msg['delivery_tag']}")
+                print(f"    Redelivered: {msg['redelivered']}")
+        else:
+            print(f"Response: {json.dumps(data, indent=2)}")
+        
+        return response.status_code == 200
+    except Exception as e:
+        print(f"❌ Failed to peek messages: {e}")
+        return False
+
+def consume_queue_messages(queue_name, count=1):
+    """Consume (permanently remove) messages from a queue"""
+    print(f"🗑️ Consuming {count} message(s) from queue '{queue_name}'...")
+    try:
+        payload = {"count": count}
+        response = requests.post(f"{APP_URL}/queue/{queue_name}/consume", json=payload)
+        print(f"Status: {response.status_code}")
+        data = response.json()
+        
+        if response.status_code == 200 and data.get('messages'):
+            print(f"Consumed {len(data['messages'])} messages:")
+            for i, msg in enumerate(data['messages'], 1):
+                print(f"  Message {i}:")
+                print(f"    Body: {json.dumps(msg['body'], indent=6)}")
+        else:
+            print(f"Response: {json.dumps(data, indent=2)}")
+        
+        return response.status_code == 200
+    except Exception as e:
+        print(f"❌ Failed to consume messages: {e}")
+        return False
+
 def main():
     """Main demonstration function"""
     print("🚀 CF Python RMQ App Client Demo")
@@ -135,7 +180,24 @@ def main():
     # Check queue info
     get_queue_info(test_queue)
     
+    print("\n" + "=" * 40)
+    
+    # Peek at messages in the queue
+    peek_queue_messages(test_queue, limit=3)
+    
+    print("\n" + "=" * 40)
+    
+    # Consume one message
+    consume_queue_messages(test_queue, count=1)
+    
+    print("\n" + "=" * 40)
+    
+    # Check queue info again to see the change
+    print("📊 Checking queue info after consuming message:")
+    get_queue_info(test_queue)
+    
     print("\n🎉 Demo completed!")
+    print("\n💡 Try the Web UI at: http://localhost:5000/ui")
 
 if __name__ == "__main__":
     main()
