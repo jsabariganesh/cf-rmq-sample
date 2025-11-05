@@ -1,0 +1,105 @@
+# Cloud Foundry Service Tester Configuration
+# This configuration defines which services to test and how to connect to them
+
+app:
+  name: "ticket-reservation-system"
+  description: "Simple ticket reservation system for CF service testing"
+  port: 5000
+
+# Database Configuration (Required - choose one)
+database:
+  type: "postgres"  # Options: postgres, mysql, inmemory
+  connection_type: "marketplace"  # Options: marketplace, cups
+  
+  # Marketplace service configuration
+  marketplace:
+    service_name: "postgres"
+    plan: "shared"
+    instance_name: "reservation-db"
+  
+  # CUPS configuration (alternative to marketplace)
+  cups:
+    service_name: "reservation-db-cups"
+    credentials:
+      hostname: "your-db-host.com"
+      port: 5432
+      username: "your-username"
+      password: "your-password"
+      database: "reservations"
+
+# Message Queue Configuration (Optional)
+message_queue:
+  enabled: true
+  type: "rabbitmq"  # Currently only rabbitmq supported
+  connection_type: "cups"  # Options: marketplace, cups
+  
+  marketplace:
+    service_name: "rabbitmq"
+    plan: "standard"
+    instance_name: "reservation-mq"
+  
+  cups:
+    service_name: "rabbitmq-service"
+    # TLS configuration
+    tls:
+      enabled: true
+      verify_certificates: false  # Set to true for production
+      ca_cert_path: "./certs/ca-cert.pem"
+      client_cert_path: "./certs/client-cert.pem"
+      client_key_path: "./certs/client-key.pem"
+
+# Cache Configuration (Optional)
+cache:
+  enabled: false
+  type: "redis"  # Options: redis, valkey
+  connection_type: "marketplace"  # Options: marketplace, cups
+  
+  marketplace:
+    service_name: "redis"
+    plan: "shared"
+    instance_name: "reservation-cache"
+  
+  cups:
+    service_name: "redis-cache-cups"
+    credentials:
+      hostname: "your-redis-host.com"
+      port: 6379
+      password: "your-redis-password"
+
+# Application Features
+features:
+  # Enable/disable specific functionality
+  reservation_notifications: true  # Requires message_queue.enabled
+  reservation_caching: false       # Requires cache.enabled
+  audit_logging: true
+  
+# Sample Data Configuration
+sample_data:
+  load_on_startup: true
+  reservations:
+    - id: 1
+      customer_name: "John Doe"
+      event_name: "Cloud Foundry Summit 2025"
+      event_date: "2025-03-15"
+      seat_number: "A-101"
+      status: "confirmed"
+    - id: 2
+      customer_name: "Jane Smith"
+      event_name: "DevOps Conference"
+      event_date: "2025-04-20"
+      seat_number: "B-205"
+      status: "pending"
+    - id: 3
+      customer_name: "Bob Johnson"
+      event_name: "Tech Meetup"
+      event_date: "2025-02-10"
+      seat_number: "C-301"
+      status: "confirmed"
+
+# Cloud Foundry Deployment
+deployment:
+  memory: "512M"
+  instances: 1
+  buildpack: "python_buildpack"
+  health_check_type: "http"
+  health_check_endpoint: "/health"

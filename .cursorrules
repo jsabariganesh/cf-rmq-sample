@@ -1,0 +1,226 @@
+# Cloud Foundry Python RabbitMQ Application - Cursor AI Context
+
+## Project Overview
+This is a Python Flask application designed for Cloud Foundry deployment with comprehensive RabbitMQ integration, TLS/SSL support, and a modern web UI. The application uses Cloud User-Provided Services (CUPS) for RabbitMQ connectivity and supports both certificate file paths and embedded certificate contents.
+
+## Architecture & Technology Stack
+- **Framework**: Flask 2.3.3 with Gunicorn WSGI server
+- **Message Broker**: RabbitMQ with pika 1.3.2 client library
+- **Cloud Platform**: Cloud Foundry with cfenv for service discovery
+- **Security**: Full TLS/SSL support with certificate authentication
+- **Frontend**: Embedded HTML/CSS/JavaScript web UI (no separate frontend framework)
+- **Deployment**: Cloud Foundry buildpack deployment with CUPS service binding
+
+## Core Features & Capabilities
+1. **RabbitMQ Operations**:
+   - Message publishing with JSON support
+   - Non-destructive message peeking (basic_get with nack/requeue)
+   - Message consumption (permanent removal)
+   - Queue information and statistics
+   - Durable queue creation and management
+
+2. **TLS/SSL Security**:
+   - Certificate-based authentication
+   - CA certificate verification with optional disable
+   - Client certificate and private key support
+   - Certificate content embedding for CF deployment
+   - Temporary file creation from certificate strings
+
+3. **Web Interface**:
+   - Responsive design with gradient styling
+   - Real-time message management
+   - Queue monitoring and statistics
+   - System status and TLS configuration viewing
+   - Mobile-friendly responsive layout
+
+4. **Cloud Foundry Integration**:
+   - CUPS service auto-discovery
+   - Environment variable fallback for local development
+   - Certificate content embedding in service credentials
+   - Proper connection lifecycle management
+
+## File Structure & Key Components
+
+### Core Application Files
+- `app.py`: Main Flask application with RMQConnection class and all endpoints
+- `requirements.txt`: Python dependencies (Flask, pika, cfenv, gunicorn, requests)
+- `manifest.yml`: CF deployment configuration with service binding
+- `example_client.py`: Comprehensive API testing client with all endpoints
+
+### Configuration & Setup
+- `setup-cups.sh`: CUPS service creation with certificate content embedding
+- `generate-test-certs.sh`: Self-signed certificate generation for development
+- `test-cert-content.sh`: Certificate content handling validation
+- `test-cf-app.sh`: CF app testing with SSL troubleshooting
+
+### Certificate Management
+- `certs/`: Directory for TLS certificates (ca-cert.pem, client-cert.pem, client-key.pem, etc.)
+- Certificate content embedding: Reads files and stores as escaped strings in CUPS
+- Temporary file creation: Creates temp files from certificate content at runtime
+
+## Key Classes & Methods
+
+### RMQConnection Class
+- `__init__()`: Initialize connection with auto-connect
+- `connect()`: Establish RabbitMQ connection with TLS support
+- `_create_ssl_context()`: Create SSL context from certificates or content
+- `_ensure_connection()`: Connection health check and auto-reconnection
+- `publish_message()`: Publish JSON messages to queues
+- `get_messages()`: Non-destructive message peeking with basic_get/nack
+- `consume_message()`: Permanent message consumption with basic_get/ack
+- `get_queue_info()`: Queue statistics (message count, consumer count)
+- `_cleanup_temp_files()`: Clean up temporary certificate files
+- `close()`: Proper connection cleanup with certificate file removal
+
+### Flask Endpoints
+- `GET /`: Health check with connection status and SSL info
+- `POST /publish`: Message publishing with JSON body
+- `GET /queue/{name}/info`: Queue statistics and information
+- `GET /queue/{name}/messages`: Non-destructive message peeking
+- `POST /queue/{name}/consume`: Permanent message consumption
+- `GET /services`: List bound CF services for debugging
+- `GET /tls-config`: TLS configuration status and certificate info
+- `GET /ui`: Embedded web UI with full queue management interface
+
+## Environment Variables & Configuration
+
+### Basic RabbitMQ Settings
+- `RMQ_HOST`: Hostname (default: localhost)
+- `RMQ_PORT`: Port (default: 5672, use 5671 for TLS)
+- `RMQ_USERNAME`: Username (default: guest)
+- `RMQ_PASSWORD`: Password (default: guest)
+- `RMQ_VHOST`: Virtual host (default: /)
+
+### TLS/SSL Configuration
+- `RMQ_SSL_ENABLED`: Enable TLS (default: false)
+- `RMQ_SSL_VERIFY`: Verify certificates (default: true)
+- `RMQ_CA_CERT_PATH`: CA certificate file path (local dev)
+- `RMQ_CLIENT_CERT_PATH`: Client certificate file path (local dev)
+- `RMQ_CLIENT_KEY_PATH`: Client private key file path (local dev)
+- `RMQ_CA_CERT_CONTENT`: CA certificate content string (CF deployment)
+- `RMQ_CLIENT_CERT_CONTENT`: Client certificate content string (CF deployment)
+- `RMQ_CLIENT_KEY_CONTENT`: Client private key content string (CF deployment)
+
+### Application Settings
+- `PORT`: Flask application port (default: 5000)
+
+## Development Patterns & Best Practices
+
+### Connection Management
+- Use `_ensure_connection()` before all RabbitMQ operations
+- Implement heartbeat (600s) and blocked connection timeout (300s)
+- Auto-reconnection on connection loss with proper error handling
+- Clean up temporary certificate files on connection close
+
+### Certificate Handling
+- Prefer certificate content over file paths for CF deployment
+- Use temporary files for SSL context creation from content strings
+- Escape newlines properly when embedding certificates in JSON
+- Clean up temporary files using `atexit.register()` and connection close
+
+### Error Handling
+- Comprehensive try-catch blocks with detailed logging
+- Graceful fallback from TLS to non-TLS on SSL context failure
+- Proper HTTP status codes (200, 500) with JSON error responses
+- Connection state validation before operations
+
+### Security Considerations
+- Certificate verification enabled by default (ssl_verify=true)
+- Support for disabling verification for development/testing
+- Secure temporary file creation with proper permissions
+- No exposure of certificate content in API responses (only metadata)
+
+## Testing & Debugging
+
+### Local Development
+```bash
+# Generate test certificates
+./generate-test-certs.sh
+
+# Test certificate content handling
+./test-cert-content.sh
+
+# Run application locally
+python app.py
+
+# Test with example client
+python example_client.py
+```
+
+### Cloud Foundry Deployment
+```bash
+# Configure CUPS service with certificates
+./setup-cups.sh
+
+# Deploy application
+cf push
+
+# Test deployed app
+./test-cf-app.sh
+```
+
+### API Testing Examples
+```bash
+# Health check
+curl -k https://app-url/
+
+# Web UI access
+curl -k https://app-url/ui
+
+# Publish message
+curl -k -X POST https://app-url/publish -H "Content-Type: application/json" -d '{"queue":"test","message":{"text":"hello"}}'
+
+# Peek messages (non-destructive)
+curl -k https://app-url/queue/test/messages?limit=5
+
+# Consume messages (permanent)
+curl -k -X POST https://app-url/queue/test/consume -H "Content-Type: application/json" -d '{"count":1}'
+```
+
+## Common Issues & Solutions
+
+### SSL Certificate Problems
+- Use `curl -k` to bypass SSL verification for CF platform certificates
+- Check certificate content embedding with `test-cert-content.sh`
+- Verify TLS config with `/tls-config` endpoint
+- For self-signed certs, set `RMQ_SSL_VERIFY=false`
+
+### Connection Issues
+- Check CF service binding with `cf services` and `cf env app-name`
+- Verify RabbitMQ accessibility from CF environment
+- Monitor connection logs for SSL handshake and AMQP protocol details
+- Use health check endpoint to verify connection status
+
+### Message Handling
+- Peek messages use `basic_get` with `basic_nack(requeue=True)` for non-destructive reads
+- Consume messages use `basic_get` with `auto_ack=True` for permanent removal
+- JSON parsing fallback to plain text for non-JSON message bodies
+- Proper delivery tag handling for message acknowledgment
+
+## Code Style & Conventions
+- Use descriptive logging with INFO/ERROR levels
+- Follow Flask best practices with proper error handling
+- Use type hints where applicable (limit parameters, etc.)
+- Implement proper resource cleanup (connections, temporary files)
+- Use environment variable fallbacks with sensible defaults
+- Follow RESTful API design patterns for endpoints
+
+## Dependencies & Versions
+- Python 3.8+ compatibility
+- Flask 2.3.3 for web framework
+- pika 1.3.2 for RabbitMQ client
+- cfenv 0.5.3 for CF service discovery
+- gunicorn 21.2.0 for WSGI server
+- requests 2.31.0 for HTTP client testing
+
+## Web UI Technical Details
+- Embedded HTML template with inline CSS and JavaScript
+- Responsive grid layout with mobile breakpoints
+- Gradient styling with modern UI components
+- Real-time timestamp updates and loading indicators
+- Form validation and error handling
+- Confirmation dialogs for destructive operations
+- JSON syntax highlighting and formatting
+- Auto-updating system status on page load
+
+This application demonstrates production-ready RabbitMQ integration with comprehensive TLS support, modern web UI, and Cloud Foundry best practices.

@@ -1,0 +1,43 @@
+# Minimal Configuration - In-Memory Database Only
+# Perfect for quick CF deployment testing
+
+app:
+  name: "cf-test-minimal"
+  description: "Minimal CF service test with in-memory database"
+  port: 5000
+
+# In-memory database - no external dependencies
+database:
+  type: "inmemory"
+  connection_type: "cups"  # Not used for inmemory, but required
+
+# Disable optional services
+message_queue:
+  enabled: false
+
+cache:
+  enabled: false
+
+# Basic features only
+features:
+  reservation_notifications: false
+  reservation_caching: false
+  audit_logging: true
+
+# Load sample data for testing
+sample_data:
+  load_on_startup: true
+  reservations:
+    - customer_name: "Test User"
+      event_name: "CF Validation Event"
+      event_date: "2025-03-01"
+      seat_number: "A-001"
+      status: "confirmed"
+
+# CF deployment settings
+deployment:
+  memory: "256M"
+  instances: 1
+  buildpack: "python_buildpack"
+  health_check_type: "http"
+  health_check_endpoint: "/health"

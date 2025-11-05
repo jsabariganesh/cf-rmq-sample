@@ -1,0 +1,21 @@
+---
+applications:
+- name: cf-service-tester
+  memory: 512M
+  instances: 1
+  buildpack: python_buildpack
+  command: gunicorn --bind 0.0.0.0:$PORT app:app
+  health-check-type: http
+  health-check-http-endpoint: "/health"
+  timeout: 180
+  services:
+    # Services will be dynamically determined based on configuration
+    # Update this list based on your app_config.yaml settings
+    # Examples:
+    # - reservation-db          # Database service (marketplace or CUPS)
+    # - rabbitmq-service        # Message queue service (CUPS)
+    # - reservation-cache       # Cache service (marketplace)
+  env:
+    # Optional environment variables for local testing
+    # These will be overridden by bound service credentials in CF
+    FLASK_ENV: production

@@ -1,0 +1,18 @@
+# Core Framework Dependencies
+Flask==2.3.3
+gunicorn==21.2.0
+PyYAML==6.0.1
+cfenv==0.5.3
+
+# Database Drivers (optional based on configuration)
+psycopg2-binary==2.9.7  # PostgreSQL
+PyMySQL==1.1.0          # MySQL
+
+# Message Queue (optional based on configuration)
+pika==1.3.2             # RabbitMQ
+
+# Cache (optional based on configuration)
+redis==4.6.0            # Redis/Valkey
+
+# Utilities
+requests==2.31.0

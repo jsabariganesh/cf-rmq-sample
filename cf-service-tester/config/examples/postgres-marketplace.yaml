@@ -1,0 +1,52 @@
+# PostgreSQL Marketplace Configuration
+# Tests CF marketplace PostgreSQL service
+
+app:
+  name: "cf-test-postgres"
+  description: "CF service test with marketplace PostgreSQL"
+  port: 5000
+
+# PostgreSQL via CF marketplace
+database:
+  type: "postgres"
+  connection_type: "marketplace"
+  marketplace:
+    service_name: "postgres"        # Adjust to your CF marketplace
+    plan: "shared"                  # Adjust to available plan
+    instance_name: "test-postgres-db"
+
+# Disable optional services for focused testing
+message_queue:
+  enabled: false
+
+cache:
+  enabled: false
+
+# Basic features
+features:
+  reservation_notifications: false
+  reservation_caching: false
+  audit_logging: true
+
+# Sample data for testing
+sample_data:
+  load_on_startup: true
+  reservations:
+    - customer_name: "Alice Johnson"
+      event_name: "PostgreSQL Test Event"
+      event_date: "2025-03-15"
+      seat_number: "PG-101"
+      status: "confirmed"
+    - customer_name: "Bob Smith"
+      event_name: "Database Validation"
+      event_date: "2025-03-20"
+      seat_number: "PG-102"
+      status: "pending"
+
+# CF deployment
+deployment:
+  memory: "512M"
+  instances: 1
+  buildpack: "python_buildpack"
+  health_check_type: "http"
+  health_check_endpoint: "/health"

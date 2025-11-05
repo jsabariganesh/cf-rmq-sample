@@ -1,0 +1,14 @@
+---
+applications:
+- name: cf-python-rmq-app
+  memory: 512M
+  instances: 1
+  buildpack: python_buildpack
+  command: gunicorn --bind 0.0.0.0:$PORT app:app
+  services:
+    - rabbitmq-service  # This should match your CUPS service name
+  env:
+    FLASK_ENV: production
+    PYTHONPATH: .
+  health-check-type: http
+  health-check-http-endpoint: /

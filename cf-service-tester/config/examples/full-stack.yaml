@@ -1,0 +1,85 @@
+# Full Stack Configuration
+# Tests all supported services: PostgreSQL + RabbitMQ + Redis
+
+app:
+  name: "cf-test-fullstack"
+  description: "Full stack CF service validation with all services"
+  port: 5000
+
+# PostgreSQL database
+database:
+  type: "postgres"
+  connection_type: "marketplace"
+  marketplace:
+    service_name: "postgres"
+    plan: "shared"
+    instance_name: "fullstack-db"
+
+# RabbitMQ with TLS (CUPS)
+message_queue:
+  enabled: true
+  type: "rabbitmq"
+  connection_type: "cups"
+  cups:
+    service_name: "fullstack-rabbitmq"
+    # TLS configuration - certificates will be embedded during deployment
+    tls:
+      enabled: true
+      verify_certificates: false  # Set to true for production
+      ca_cert_path: "./apps/rmq-app/certs/ca-cert.pem"
+      client_cert_path: "./apps/rmq-app/certs/client-cert.pem"
+      client_key_path: "./apps/rmq-app/certs/client-key.pem"
+
+# Redis cache
+cache:
+  enabled: true
+  type: "redis"
+  connection_type: "marketplace"
+  marketplace:
+    service_name: "redis"
+    plan: "shared"
+    instance_name: "fullstack-cache"
+
+# Enable all features
+features:
+  reservation_notifications: true   # Requires message_queue
+  reservation_caching: true        # Requires cache
+  audit_logging: true
+
+# Comprehensive sample data
+sample_data:
+  load_on_startup: true
+  reservations:
+    - customer_name: "Enterprise User 1"
+      event_name: "Full Stack Conference 2025"
+      event_date: "2025-04-01"
+      seat_number: "FS-001"
+      status: "confirmed"
+    - customer_name: "Enterprise User 2"
+      event_name: "CF Services Workshop"
+      event_date: "2025-04-02"
+      seat_number: "FS-002"
+      status: "pending"
+    - customer_name: "Enterprise User 3"
+      event_name: "Database Performance Summit"
+      event_date: "2025-04-03"
+      seat_number: "FS-003"
+      status: "confirmed"
+    - customer_name: "Enterprise User 4"
+      event_name: "Message Queue Deep Dive"
+      event_date: "2025-04-04"
+      seat_number: "FS-004"
+      status: "pending"
+    - customer_name: "Enterprise User 5"
+      event_name: "Cache Optimization Masterclass"
+      event_date: "2025-04-05"
+      seat_number: "FS-005"
+      status: "confirmed"
+
+# Production-like deployment
+deployment:
+  memory: "1G"
+  instances: 2
+  buildpack: "python_buildpack"
+  health_check_type: "http"
+  health_check_endpoint: "/health"
